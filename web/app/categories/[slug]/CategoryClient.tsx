@@ -1,34 +1,34 @@
 'use client';
 import { useState, useEffect } from 'react';
 import AppCard from '../../../components/AppCard';
-
-type CategoryDetails = {
-  name: string;
-  slug: string;
-  apps: { slug: string; name: string; description: string }[];
-};
+import { DEFAULT_CATEGORIES, CategoryData } from '../../../lib/catalogData';
 
 export default function CategoryClient({ slug }: { slug: string }) {
-  const [category, setCategory] = useState<CategoryDetails | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const fallbackCategory = DEFAULT_CATEGORIES.find((c) => c.slug === slug) || null;
+  const [category, setCategory] = useState<CategoryData | null>(fallbackCategory);
+  const [isLoading, setIsLoading] = useState(!fallbackCategory);
 
   useEffect(() => {
     let isMounted = true;
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-    fetch(`${apiUrl}/api/v1/catalog/categories/${slug}`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Category not found");
-        return res.json();
-      })
-      .then((data) => {
-        if (isMounted) setCategory(data);
-      })
-      .catch((e) => {
-        console.error(e);
-      })
-      .finally(() => {
-        if (isMounted) setIsLoading(false);
-      });
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+    if (apiUrl) {
+      fetch(`${apiUrl}/api/v1/catalog/categories/${slug}`)
+        .then((res) => {
+          if (!res.ok) throw new Error("Category not found");
+          return res.json();
+        })
+        .then((data) => {
+          if (isMounted && data) setCategory(data);
+        })
+        .catch(() => {
+          // Fallback to static data
+        })
+        .finally(() => {
+          if (isMounted) setIsLoading(false);
+        });
+    } else {
+      setIsLoading(false);
+    }
 
     return () => {
       isMounted = false;

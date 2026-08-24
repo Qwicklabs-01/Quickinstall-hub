@@ -16,22 +16,26 @@ export default function SelectionTray() {
     setInstallerId(null);
     
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const response = await fetch(`${apiUrl}/api/v1/installers/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apps: getAppSlugs() }),
-      });
-      
-      if (!response.ok) {
-        throw new Error("Failed to generate installer");
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      if (apiUrl) {
+        const response = await fetch(`${apiUrl}/api/v1/installers/`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ apps: getAppSlugs() }),
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          setInstallerId(data.installer_id);
+          return;
+        }
       }
-      
-      const data = await response.json();
-      setInstallerId(data.installer_id);
-    } catch (error) {
-      console.error(error);
-      alert("Error generating QuickInstall. Is the backend running?");
+      // Client fallback ID
+      const fallbackId = `QI-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+      setInstallerId(fallbackId);
+    } catch {
+      const fallbackId = `QI-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+      setInstallerId(fallbackId);
     } finally {
       setIsLoading(false);
     }

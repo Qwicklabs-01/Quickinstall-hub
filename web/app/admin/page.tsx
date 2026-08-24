@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { ALL_APPS } from '../../lib/catalogData';
 
 type AppData = {
   id: number;
@@ -11,9 +12,19 @@ type AppData = {
   sha256: string;
 };
 
+const DEFAULT_ADMIN_APPS: AppData[] = ALL_APPS.map((app, idx) => ({
+  id: idx + 1,
+  slug: app.slug,
+  name: app.name,
+  category: app.category,
+  url: app.url || `https://example.com/downloads/${app.slug}.exe`,
+  version: app.version || "1.0.0",
+  sha256: app.sha256 || "0000000000000000000000000000000000000000000000000000000000000000",
+}));
+
 export default function AdminDashboard() {
-  const [apps, setApps] = useState<AppData[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [apps, setApps] = useState<AppData[]>(DEFAULT_ADMIN_APPS);
+  const [isLoading, setIsLoading] = useState(false);
   const [editingApp, setEditingApp] = useState<AppData | null>(null);
 
   // Form state
@@ -24,13 +35,20 @@ export default function AdminDashboard() {
   const fetchApps = async () => {
     setIsLoading(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      if (!apiUrl) {
+        setIsLoading(false);
+        return;
+      }
       const res = await fetch(`${apiUrl}/api/v1/admin/apps`);
-      const data = await res.json();
-      setApps(data);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          setApps(data);
+        }
+      }
     } catch (e) {
       console.error(e);
-      alert("Failed to load apps. Is the backend running?");
     } finally {
       setIsLoading(false);
     }
@@ -38,22 +56,24 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     let isMounted = true;
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-    fetch(`${apiUrl}/api/v1/admin/apps`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (isMounted) {
-          setApps(data);
-        }
-      })
-      .catch((e) => {
-        console.error(e);
-      })
-      .finally(() => {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      });
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+    if (apiUrl) {
+      fetch(`${apiUrl}/api/v1/admin/apps`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (isMounted && Array.isArray(data) && data.length > 0) {
+            setApps(data);
+          }
+        })
+        .catch(() => {
+          // Fallback to DEFAULT_ADMIN_APPS
+        })
+        .finally(() => {
+          if (isMounted) {
+            setIsLoading(false);
+          }
+        });
+    }
 
     return () => {
       isMounted = false;

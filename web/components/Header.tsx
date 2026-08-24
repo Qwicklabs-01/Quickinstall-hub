@@ -17,6 +17,9 @@ export default function Header() {
             <Link href="/" className="text-gray-300 hover:text-white transition-colors text-sm font-medium">
               Browse Apps
             </Link>
+            <Link href="/search" className="text-gray-300 hover:text-white transition-colors text-sm font-medium">
+              Search
+            </Link>
             <Link href="/admin" className="text-gray-300 hover:text-white transition-colors text-sm font-medium">
               Admin
             </Link>

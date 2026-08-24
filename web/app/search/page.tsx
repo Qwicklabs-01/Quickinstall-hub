@@ -2,13 +2,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import AppCard from '../../components/AppCard';
-
-type AppData = {
-  slug: string;
-  name: string;
-  description: string;
-  category: string;
-};
+import { ALL_APPS, AppItem } from '../../lib/catalogData';
 
 function SearchContent() {
   const searchParams = useSearchParams();
@@ -16,7 +10,7 @@ function SearchContent() {
   const initialQuery = searchParams.get('q') || '';
   
   const [query, setQuery] = useState(initialQuery);
-  const [results, setResults] = useState<AppData[]>([]);
+  const [results, setResults] = useState<AppItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   const hasSearched = Boolean(initialQuery.trim());
@@ -26,28 +20,38 @@ function SearchContent() {
       return;
     }
     let isMounted = true;
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-    
-    Promise.resolve().then(() => {
-      if (isMounted) setIsLoading(true);
-    });
+    const qLower = initialQuery.toLowerCase().trim();
+    const localFiltered = ALL_APPS.filter(
+      (app) =>
+        app.name.toLowerCase().includes(qLower) ||
+        app.description.toLowerCase().includes(qLower) ||
+        app.category.toLowerCase().includes(qLower)
+    );
 
-    fetch(`${apiUrl}/api/v1/catalog/search?q=${encodeURIComponent(initialQuery)}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (isMounted) {
-          setResults(Array.isArray(data) ? data : []);
-        }
-      })
-      .catch((e) => {
-        console.error(e);
-        if (isMounted) setResults([]);
-      })
-      .finally(() => {
-        if (isMounted) {
-          setIsLoading(false);
-        }
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+    if (apiUrl) {
+      Promise.resolve().then(() => {
+        if (isMounted) setIsLoading(true);
       });
+
+      fetch(`${apiUrl}/api/v1/catalog/search?q=${encodeURIComponent(initialQuery)}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (isMounted && Array.isArray(data)) {
+            setResults(data);
+          } else if (isMounted) {
+            setResults(localFiltered);
+          }
+        })
+        .catch(() => {
+          if (isMounted) setResults(localFiltered);
+        })
+        .finally(() => {
+          if (isMounted) setIsLoading(false);
+        });
+    } else {
+      setResults(localFiltered);
+    }
 
     return () => {
       isMounted = false;
