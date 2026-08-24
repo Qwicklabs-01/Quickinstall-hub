@@ -6,7 +6,6 @@ const repoName = "Quickinstall-hub";
 const nextConfig: NextConfig = {
   output: isGithubPages ? "export" : undefined,
   basePath: isGithubPages ? `/${repoName}` : undefined,
-  assetPrefix: isGithubPages ? `/${repoName}/` : undefined,
   images: {
     unoptimized: true,
   },
