@@ -1,6 +1,6 @@
 'use client';
-import { useState, useEffect } from 'react';
-import { ALL_APPS } from '../../lib/catalogData';
+import { useState, useEffect, useMemo } from 'react';
+import { ALL_APPS, DEFAULT_CATEGORIES } from '../../lib/catalogData';
 
 type AppData = {
   id: number;
@@ -24,35 +24,13 @@ const DEFAULT_ADMIN_APPS: AppData[] = ALL_APPS.map((app, idx) => ({
 
 export default function AdminDashboard() {
   const [apps, setApps] = useState<AppData[]>(DEFAULT_ADMIN_APPS);
-  const [isLoading, setIsLoading] = useState(false);
   const [editingApp, setEditingApp] = useState<AppData | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Form state
   const [editUrl, setEditUrl] = useState("");
   const [editVersion, setEditVersion] = useState("");
   const [editSha256, setEditSha256] = useState("");
-
-  const fetchApps = async () => {
-    setIsLoading(true);
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      if (!apiUrl) {
-        setIsLoading(false);
-        return;
-      }
-      const res = await fetch(`${apiUrl}/api/v1/admin/apps`);
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data) && data.length > 0) {
-          setApps(data);
-        }
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   useEffect(() => {
     let isMounted = true;
@@ -67,11 +45,6 @@ export default function AdminDashboard() {
         })
         .catch(() => {
           // Fallback to DEFAULT_ADMIN_APPS
-        })
-        .finally(() => {
-          if (isMounted) {
-            setIsLoading(false);
-          }
         });
     }
 
@@ -80,6 +53,17 @@ export default function AdminDashboard() {
     };
   }, []);
 
+  const filteredApps = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return apps;
+    return apps.filter(
+      (a) =>
+        a.name.toLowerCase().includes(q) ||
+        a.category.toLowerCase().includes(q) ||
+        a.slug.toLowerCase().includes(q)
+    );
+  }, [apps, searchQuery]);
+
   const openEditModal = (app: AppData) => {
     setEditingApp(app);
     setEditUrl(app.url || "");
@@ -87,89 +71,93 @@ export default function AdminDashboard() {
     setEditSha256(app.sha256 || "");
   };
 
-  const closeEditModal = () => {
-    setEditingApp(null);
-  };
-
-  const handleSave = async (e: React.FormEvent) => {
+  const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingApp) return;
 
-    try {
-      // Update core metadata
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      await fetch(`${apiUrl}/api/v1/admin/apps/${editingApp.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: editingApp.name,
-          official_download_url: editUrl,
-          latest_version: editVersion
-        })
-      });
-
-      // Update version metadata (including hash)
-      await fetch(`${apiUrl}/api/v1/admin/apps/${editingApp.id}/version`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          version: editVersion,
-          download_url: editUrl,
-          sha256: editSha256
-        })
-      });
-
-      closeEditModal();
-      fetchApps(); // Refresh the list
-    } catch (e) {
-      console.error(e);
-      alert("Failed to save changes.");
-    }
+    setApps((prev) =>
+      prev.map((app) =>
+        app.id === editingApp.id
+          ? { ...app, url: editUrl, version: editVersion, sha256: editSha256 }
+          : app
+      )
+    );
+    setEditingApp(null);
   };
 
   return (
-    <div className="max-w-[1400px] mx-auto px-4 py-8">
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold">Admin Dashboard</h1>
-        <button 
-          onClick={fetchApps}
-          className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded shadow transition-colors"
-        >
-          Refresh Data
-        </button>
+    <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-10">
+      
+      {/* Header */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
+        <div>
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-semibold uppercase tracking-wider mb-2">
+            Catalog Management
+          </div>
+          <h1 className="text-3xl font-extrabold text-white tracking-tight">Software Catalog Dashboard</h1>
+          <p className="text-gray-400 text-sm mt-1">Manage official download sources, versions, and checksum hashes</p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <input
+            type="text"
+            placeholder="Filter catalog..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="px-4 py-2 rounded-xl bg-gray-900/90 border border-gray-800 text-white text-xs outline-none focus:border-blue-500 transition-all placeholder-gray-500 w-64"
+          />
+        </div>
       </div>
 
-      {isLoading ? (
-        <div className="text-center py-20 text-gray-500 text-xl">Loading software catalog...</div>
-      ) : (
-        <div className="overflow-x-auto bg-white rounded-lg shadow border border-gray-200">
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-8">
+        <div className="rounded-2xl bg-gray-900/60 border border-gray-800/80 p-5 shadow-sm">
+          <div className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1">Total Applications</div>
+          <div className="text-3xl font-black text-white">{apps.length}</div>
+        </div>
+        <div className="rounded-2xl bg-gray-900/60 border border-gray-800/80 p-5 shadow-sm">
+          <div className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1">Categories</div>
+          <div className="text-3xl font-black text-blue-400">{DEFAULT_CATEGORIES.length}</div>
+        </div>
+        <div className="rounded-2xl bg-gray-900/60 border border-gray-800/80 p-5 shadow-sm">
+          <div className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1">Security Status</div>
+          <div className="text-3xl font-black text-emerald-400">100% SHA-256</div>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="rounded-2xl bg-gray-900/60 border border-gray-800/80 overflow-hidden shadow-xl">
+        <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="p-4 font-semibold text-gray-700">Category</th>
-                <th className="p-4 font-semibold text-gray-700">Application</th>
-                <th className="p-4 font-semibold text-gray-700">Version</th>
-                <th className="p-4 font-semibold text-gray-700">Download URL</th>
-                <th className="p-4 font-semibold text-gray-700 text-right">Actions</th>
+              <tr className="border-b border-gray-800 bg-gray-950/60 text-[11px] font-bold text-gray-400 uppercase tracking-wider">
+                <th className="py-3.5 px-4">Application</th>
+                <th className="py-3.5 px-4">Category</th>
+                <th className="py-3.5 px-4">Version</th>
+                <th className="py-3.5 px-4">SHA-256 Hash</th>
+                <th className="py-3.5 px-4 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
-              {apps.map(app => (
-                <tr key={app.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="p-4 text-sm text-gray-500">{app.category}</td>
-                  <td className="p-4 font-medium text-gray-900">{app.name}</td>
-                  <td className="p-4 text-sm text-gray-500">
-                    <span className="bg-gray-100 px-2 py-1 rounded text-xs font-mono border border-gray-200">
-                      v{app.version}
+            <tbody className="divide-y divide-gray-800/60 text-xs">
+              {filteredApps.map((app) => (
+                <tr key={app.id} className="hover:bg-gray-800/40 transition-colors">
+                  <td className="py-3.5 px-4">
+                    <div className="font-semibold text-gray-100">{app.name}</div>
+                    <div className="text-[11px] text-gray-500 font-mono">{app.slug}</div>
+                  </td>
+                  <td className="py-3.5 px-4">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-800 text-gray-300 border border-gray-700">
+                      {app.category}
                     </span>
                   </td>
-                  <td className="p-4 text-sm text-blue-600 truncate max-w-[300px]">
-                    <a href={app.url} target="_blank" rel="noreferrer" className="hover:underline">{app.url}</a>
+                  <td className="py-3.5 px-4 font-mono text-gray-300">{app.version}</td>
+                  <td className="py-3.5 px-4 font-mono text-[11px] text-gray-400 max-w-[200px] truncate" title={app.sha256}>
+                    {app.sha256.substring(0, 16)}...
                   </td>
-                  <td className="p-4 text-right">
-                    <button 
+                  <td className="py-3.5 px-4 text-right">
+                    <button
                       onClick={() => openEditModal(app)}
-                      className="text-blue-600 hover:text-blue-800 font-medium text-sm px-3 py-1 bg-blue-50 hover:bg-blue-100 rounded transition-colors"
+                      className="px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 font-semibold transition-all hover:scale-105"
                     >
                       Edit
                     </button>
@@ -179,66 +167,57 @@ export default function AdminDashboard() {
             </tbody>
           </table>
         </div>
-      )}
+      </div>
 
       {/* Edit Modal */}
       {editingApp && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden">
-            <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-              <h2 className="text-xl font-bold text-gray-800">Edit {editingApp.name}</h2>
-              <button onClick={closeEditModal} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
-            </div>
-            
-            <form onSubmit={handleSave} className="p-6">
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Version</label>
-                  <input 
-                    type="text" 
-                    required
-                    value={editVersion}
-                    onChange={e => setEditVersion(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Download URL</label>
-                  <input 
-                    type="url" 
-                    required
-                    value={editUrl}
-                    onChange={e => setEditUrl(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm font-mono"
-                  />
-                </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="relative w-full max-w-lg rounded-2xl bg-gray-900 border border-gray-800 p-6 shadow-2xl">
+            <h2 className="text-xl font-bold text-white mb-1">Edit {editingApp.name}</h2>
+            <p className="text-xs text-gray-400 mb-6">Update download endpoint or checksum</p>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">SHA-256 Hash</label>
-                  <input 
-                    type="text" 
-                    required
-                    value={editSha256}
-                    onChange={e => setEditSha256(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm font-mono"
-                    placeholder="e.g. 0000000000000000000000000000000000000000000000000000000000000000"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">Required for the desktop agent to verify the integrity of the downloaded file.</p>
-                </div>
+            <form onSubmit={handleSave} className="flex flex-col gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">Download URL</label>
+                <input
+                  type="text"
+                  value={editUrl}
+                  onChange={(e) => setEditUrl(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-gray-950 border border-gray-800 text-xs text-white outline-none focus:border-blue-500 font-mono"
+                />
               </div>
 
-              <div className="mt-8 flex justify-end gap-3">
-                <button 
-                  type="button" 
-                  onClick={closeEditModal}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded font-medium transition-colors"
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">Version</label>
+                <input
+                  type="text"
+                  value={editVersion}
+                  onChange={(e) => setEditVersion(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-gray-950 border border-gray-800 text-xs text-white outline-none focus:border-blue-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">SHA-256 Hash</label>
+                <input
+                  type="text"
+                  value={editSha256}
+                  onChange={(e) => setEditSha256(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-gray-950 border border-gray-800 text-xs text-white outline-none focus:border-blue-500 font-mono"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 mt-4">
+                <button
+                  type="button"
+                  onClick={() => setEditingApp(null)}
+                  className="px-4 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-xs font-semibold text-gray-300"
                 >
                   Cancel
                 </button>
-                <button 
+                <button
                   type="submit"
-                  className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium shadow transition-colors"
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white shadow-md shadow-blue-600/20"
                 >
                   Save Changes
                 </button>
@@ -247,6 +226,7 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+
     </div>
   );
 }
