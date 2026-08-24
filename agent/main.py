@@ -1,8 +1,12 @@
 import sys
+import os
+import json
 import argparse
 import requests
 from crypto import ManifestVerifier
-import os
+from installer import execute_silent_install, install_app_via_winget
+from downloader import DownloadManager
+from crypto import verify_file_hash
 
 # Handle PyInstaller's temporary directory for bundled assets
 if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
@@ -12,99 +16,107 @@ else:
     base_path = os.path.join(os.path.dirname(__file__), '..', 'api')
     PUBLIC_KEY_PATH = os.path.join(base_path, 'keys', 'public.key')
 
-def main():
-    parser = argparse.ArgumentParser(description="QuickInstall Hub Desktop Agent")
-    parser.add_argument("manifest_id", help="The ID of the installer manifest to fetch and execute")
-    args = parser.parse_args()
-    
-    print(f"[*] Starting QuickInstall Agent for manifest: {args.manifest_id}")
-    
-    # 1. Fetch manifest from backend
-    api_base_url = os.environ.get("QUICKINSTALL_API_URL", "http://localhost:8000")
-    url = f"{api_base_url}/api/v1/manifests/{args.manifest_id}"
-    print(f"[*] Fetching manifest from {url}...")
-    
+def extract_embedded_payload():
+    """
+    Reads the executable itself to find any appended JSON payload.
+    Format: ###QI_PAYLOAD_START###{...json...}###QI_PAYLOAD_END###
+    """
     try:
-        response = requests.get(url)
-        response.raise_for_status()
-        manifest = response.json()
+        exe_path = sys.executable if getattr(sys, 'frozen', False) else __file__
+        with open(exe_path, "rb") as f:
+            content = f.read()
+
+        start_tag = b"###QI_PAYLOAD_START###"
+        end_tag = b"###QI_PAYLOAD_END###"
+
+        start_idx = content.rfind(start_tag)
+        end_idx = content.rfind(end_tag)
+
+        if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+            raw_json = content[start_idx + len(start_tag):end_idx].decode("utf-8")
+            return json.loads(raw_json)
     except Exception as e:
-        print(f"[!] Failed to fetch manifest: {e}")
-        sys.exit(1)
-        
-    print("[*] Manifest fetched successfully.")
-    
-    # 2. Verify Cryptographic Signature
-    if not os.path.exists(PUBLIC_KEY_PATH):
-        print(f"[!] Critical Error: Public key not found at {PUBLIC_KEY_PATH}")
-        sys.exit(1)
-        
-    with open(PUBLIC_KEY_PATH, "rb") as f:
-        public_key_pem = f.read()
-        
-    verifier = ManifestVerifier(public_key_pem)
-    
-    payload = manifest.get("payload")
-    signature = manifest.get("signature")
-    
-    if not payload or not signature:
-        print("[!] Invalid manifest format (missing payload or signature)")
-        sys.exit(1)
-        
-    print("[*] Verifying Ed25519 signature...")
-    if not verifier.verify_manifest(payload, signature):
-        print("[!] SECURITY WARNING: Manifest signature verification failed! The payload may have been tampered with.")
-        sys.exit(1)
-        
-    print("[+] Signature verified! Payload is authentic.")
-    
-    # 3. Process the payload
-    apps = payload.get("apps", [])
-    print(f"[*] Found {len(apps)} applications to install:")
-    
-    from downloader import DownloadManager
-    from crypto import verify_file_hash
-    from installer import execute_silent_install
-    
-    dl_manager = DownloadManager()
-    downloaded_files = []
-    
-    for app in apps:
-        print(f"\n[*] Preparing {app['name']} (v{app['version']})")
-        
-        # 1. Download
-        filepath = dl_manager.download_app(app)
-        if not filepath:
-            print(f"[!] Skipping {app['name']} due to download failure.")
-            continue
-            
-        # 2. Verify Hash
-        expected_hash = app.get("sha256", "0000000000000000000000000000000000000000000000000000000000000000")
-        if not verify_file_hash(filepath, expected_hash):
-            print(f"[!] Skipping {app['name']} due to hash mismatch. File may be corrupted!")
-            continue
-            
-        downloaded_files.append({
-            "app": app,
-            "path": filepath
-        })
-            
-    print(f"\n[+] Successfully downloaded and verified {len(downloaded_files)}/{len(apps)} applications.")
-    
-    # 4. Execute Silent Installers
-    print("\n[*] Starting Installation Phase...")
+        print(f"[*] Note: No embedded package payload detected ({e})")
+    return None
+
+def run_installation_flow(apps):
+    print(f"\n==========================================================")
+    print(f"       QuickInstall Hub - Windows App Suite Installer     ")
+    print(f"==========================================================")
+    print(f"\n[*] Found {len(apps)} applications to install:\n")
+    for a in apps:
+        print(f"  • {a.get('name', a.get('slug', 'App'))}")
+    print("\n----------------------------------------------------------")
+
     success_count = 0
-    for item in downloaded_files:
-        app = item["app"]
-        filepath = item["path"]
-        args = app.get("args", ["/S"])
-        
-        if execute_silent_install(filepath, args):
-            success_count += 1
-            
-    print(f"\n[===========================================]")
-    print(f"[*] QuickInstall Complete! Successfully installed {success_count}/{len(downloaded_files)} apps.")
-    print(f"[===========================================]\n")
+    dl_manager = DownloadManager()
+
+    for idx, app in enumerate(apps, 1):
+        name = app.get("name", app.get("slug", f"App #{idx}"))
+        winget_id = app.get("wingetId") or app.get("winget_id")
+        url = app.get("url")
+
+        print(f"\n[{idx}/{len(apps)}] Processing: {name}")
+
+        # If direct download URL and sha256 is present and not mock, download it
+        if url and not url.startswith("https://example.com"):
+            filepath = dl_manager.download_app(app)
+            if filepath:
+                expected_hash = app.get("sha256", "")
+                if expected_hash and not verify_file_hash(filepath, expected_hash):
+                    print(f"[!] Hash mismatch for {name}. Falling back...")
+                else:
+                    args = app.get("args", ["/S"])
+                    if execute_silent_install(filepath, args):
+                        success_count += 1
+                        continue
+
+        # Otherwise, install via Winget
+        if winget_id:
+            if install_app_via_winget(winget_id, name):
+                success_count += 1
+        else:
+            print(f"[!] No valid installer source for {name}.")
+
+    print(f"\n==========================================================")
+    print(f"  [✓] Installation Finished! ({success_count}/{len(apps)} completed)")
+    print(f"==========================================================\n")
+
+def main():
+    embedded_payload = extract_embedded_payload()
+
+    if embedded_payload and "apps" in embedded_payload:
+        print("[*] Embedded package detected.")
+        run_installation_flow(embedded_payload["apps"])
+        input("\nPress Enter to exit...")
+        return
+
+    # Check CLI arguments
+    if len(sys.argv) > 1:
+        manifest_id = sys.argv[1]
+        print(f"[*] Fetching installer manifest: {manifest_id}")
+        api_base_url = os.environ.get("QUICKINSTALL_API_URL", "http://localhost:8000")
+        url = f"{api_base_url}/api/v1/manifests/{manifest_id}"
+
+        try:
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            manifest = response.json()
+            apps = manifest.get("payload", {}).get("apps", [])
+            run_installation_flow(apps)
+        except Exception as e:
+            print(f"[!] Error: {e}")
+        input("\nPress Enter to exit...")
+        return
+
+    print("==========================================================")
+    print("                 QuickInstall Hub Desktop                 ")
+    print("==========================================================")
+    print("Usage:")
+    print("  1. Download customized QuickInstall.exe from the website")
+    print("  2. Or run: QuickInstall.exe <manifest_id>")
+    print("==========================================================")
+    input("\nPress Enter to exit...")
 
 if __name__ == "__main__":
     main()

@@ -2,10 +2,10 @@
 
 
 a = Analysis(
-    ['C:/Users/Sakshi/Downloads/New folder/quickinstall-hub/agent/main.py'],
+    ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('C:/Users/Sakshi/Downloads/New folder/quickinstall-hub/api/keys/public.key', 'keys')],
+    datas=[('../api/keys/public.key', 'keys')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
